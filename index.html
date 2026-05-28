@@ -1,0 +1,148 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f0f1a" />
+  <meta name="description" content="Catálogo de inventario automotriz. Busca aceites, filtros, pastillas de freno y accesorios varios en tiempo real." />
+  <title>AutoStock — Inventario Automotriz</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="splash-screen" aria-label="Cargando aplicacion">
+    <div class="splash-logo">
+      <div class="splash-icon">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 36 L24 12 L40 36" stroke="url(#grad1)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M14 28 L34 28" stroke="url(#grad1)" stroke-width="3.5" stroke-linecap="round"/>
+          <circle cx="24" cy="36" r="3" fill="url(#grad1)"/>
+          <defs>
+            <linearGradient id="grad1" x1="8" y1="12" x2="40" y2="36" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#06b6d4"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <h1 class="splash-title">AutoStock</h1>
+      <p class="splash-subtitle">Inventario Automotriz</p>
+    </div>
+    <div class="splash-loader"><div class="loader-bar"></div></div>
+  </div>
+  <div id="app" class="hidden">
+    <header id="main-header">
+      <div class="header-top">
+        <div class="header-brand">
+          <div class="brand-icon">
+            <svg viewBox="0 0 32 32" fill="none">
+              <path d="M5 24 L16 8 L27 24" stroke="url(#hg)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M9 19 L23 19" stroke="url(#hg)" stroke-width="2.5" stroke-linecap="round"/>
+              <circle cx="16" cy="24" r="2" fill="url(#hg)"/>
+              <defs>
+                <linearGradient id="hg" x1="5" y1="8" x2="27" y2="24" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#818cf8"/><stop offset="100%" stop-color="#22d3ee"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <span class="brand-name">AutoStock</span>
+        </div>
+        <div id="connection-status" class="status-dot status-loading" title="Conectando a Firebase...">
+          <span class="status-pulse"></span>
+        </div>
+      </div>
+      <div class="search-container">
+        <div class="search-wrapper">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input type="search" id="search-input" class="search-input" placeholder="Buscar marca, codigo, vehiculo..." autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Buscar en inventario" />
+          <button id="clear-search" class="clear-btn hidden" aria-label="Limpiar busqueda">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="category-tabs" role="tablist">
+        <button class="tab-btn active" data-category="all" role="tab" aria-selected="true">Todo</button>
+        <button class="tab-btn" data-category="aceites" role="tab" aria-selected="false"><span class="tab-dot" style="--c:#f59e0b"></span>Aceites</button>
+        <button class="tab-btn" data-category="filtros" role="tab" aria-selected="false"><span class="tab-dot" style="--c:#10b981"></span>Filtros</button>
+        <button class="tab-btn" data-category="pastillas" role="tab" aria-selected="false"><span class="tab-dot" style="--c:#ef4444"></span>Pastillas</button>
+        <button class="tab-btn" data-category="varios" role="tab" aria-selected="false"><span class="tab-dot" style="--c:#8b5cf6"></span>Varios</button>
+      </div>
+    </header>
+    <main id="results-area" role="main">
+      <div id="state-idle" class="state-view">
+        <div class="idle-content">
+          <div class="idle-icon">&#128269;</div>
+          <h2>Busca cualquier producto</h2>
+          <p>Escribe una marca, codigo, vehiculo o descripcion para encontrar lo que necesitas.</p>
+          <div class="quick-tags">
+            <span class="tag-label">Prueba:</span>
+            <button class="quick-tag" data-query="Mobil">Mobil</button>
+            <button class="quick-tag" data-query="20W50">20W50</button>
+            <button class="quick-tag" data-query="Chevrolet">Chevrolet</button>
+            <button class="quick-tag" data-query="Toyota">Toyota</button>
+            <button class="quick-tag" data-query="Freno">Freno</button>
+          </div>
+        </div>
+      </div>
+      <div id="state-loading" class="state-view hidden">
+        <div class="loading-grid">
+          <div class="skeleton-card"></div><div class="skeleton-card"></div>
+          <div class="skeleton-card"></div><div class="skeleton-card"></div>
+        </div>
+      </div>
+      <div id="state-empty" class="state-view hidden">
+        <div class="empty-content">
+          <div class="empty-icon">&#128230;</div>
+          <h2>Sin resultados</h2>
+          <p id="empty-message">No encontramos productos que coincidan con tu busqueda.</p>
+        </div>
+      </div>
+      <div id="state-results" class="state-view hidden">
+        <div class="results-header">
+          <span id="results-count" class="results-count"></span>
+        </div>
+        <div id="results-grid" class="results-grid" role="list"></div>
+      </div>
+    </main>
+    <div id="stats-bar" class="stats-bar">
+      <div class="stat-item"><span class="stat-num" id="stat-aceites">-</span><span class="stat-label">Aceites</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat-item"><span class="stat-num" id="stat-filtros">-</span><span class="stat-label">Filtros</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat-item"><span class="stat-num" id="stat-pastillas">-</span><span class="stat-label">Pastillas</span></div>
+      <div class="stat-divider"></div>
+      <div class="stat-item"><span class="stat-num" id="stat-varios">-</span><span class="stat-label">Varios</span></div>
+    </div>
+  </div>
+  <div id="detail-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-sheet" id="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <div class="modal-category-badge" id="modal-badge">Categoria</div>
+        <button id="modal-close" class="modal-close-btn" aria-label="Cerrar detalle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="modal-hero">
+        <h2 id="modal-title" class="modal-title">-</h2>
+        <div class="modal-price-row">
+          <span class="modal-price" id="modal-price">.00</span>
+          <div class="modal-location-chip" id="modal-location">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a5 5 0 0 0-5 5c0 3.5 5 9 5 9s5-5.5 5-9a5 5 0 0 0-5-5zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>
+            <span id="modal-location-text">-</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-divider"></div>
+      <div class="modal-details" id="modal-details"></div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
