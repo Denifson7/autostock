@@ -1,12 +1,10 @@
 ﻿// ============================================================
-//  AutoStock — app.js
+//  AutoStock — app.js  (Light Mode · Normalized)
 //  Firebase Firestore — Inventario Automotriz (Solo Lectura)
 // ============================================================
 
 // ============================================================
-//  🔥 FIREBASE CONFIGURATION
-//  Reemplaza los valores de este objeto con los de tu proyecto
-//  Firebase Console → Project Settings → Your Apps → Web App
+//  🔥 FIREBASE CONFIGURATION — Reemplaza con tus credenciales
 // ============================================================
 const firebaseConfig = {
   apiKey: "AIzaSyANa39vlYiokrzT9eLllo1r7fLsdMfhmeE",
@@ -17,74 +15,74 @@ const firebaseConfig = {
   messagingSenderId: "139644765699",
   appId: "1:139644765699:web:d690b1cc1f6cc10181f036"
 };
+
 // ============================================================
 //  NOMBRES DE LAS COLECCIONES EN FIRESTORE
-//  Deben coincidir exactamente con los nombres que usaste
-//  al importar los JSON en Firebase.
 // ============================================================
 const COLLECTIONS = {
   aceites:   "ACEITES",
   filtros:   "FILTROS",
   pastillas: "PASTILLAS",
-  varios:    "COSAS_VARIAS"   // Firebase no acepta espacios; usa guion bajo
+  varios:    "COSAS_VARIAS"
 };
 
 // ============================================================
-//  ICONOS Y COLORES POR CATEGORIA
+//  METADATOS VISUALES POR CATEGORÍA
 // ============================================================
 const CAT_META = {
-  aceites:   { emoji: "🛢️",  label: "Aceite",   badge: "badge-aceites",   icon: "cat-aceites" },
-  filtros:   { emoji: "🔩",  label: "Filtro",   badge: "badge-filtros",   icon: "cat-filtros" },
-  pastillas: { emoji: "🔴",  label: "Pastilla", badge: "badge-pastillas", icon: "cat-pastillas" },
-  varios:    { emoji: "📦",  label: "Varios",   badge: "badge-varios",    icon: "cat-varios" }
+  aceites:   { emoji: "🛢️",  pillLabel: "Aceite",   pillClass: "pill-aceite",   iconClass: "icon-aceite"   },
+  filtros:   { emoji: "🔩",  pillLabel: "Filtro",   pillClass: "pill-filtro",   iconClass: "icon-filtro"   },
+  pastillas: { emoji: "🔴",  pillLabel: "Pastilla", pillClass: "pill-pastilla", iconClass: "icon-pastilla" },
+  varios:    { emoji: "📦",  pillLabel: "Producto", pillClass: "pill-varios",   iconClass: "icon-varios"   }
 };
 
 // ============================================================
-//  CAMPOS IGNORADOS EN LA VISTA DETALLADA (ya se muestran en hero)
+//  CAMPOS SIEMPRE EXCLUIDOS DEL MODAL DE DETALLES
 // ============================================================
-const IGNORE_FIELDS = new Set(["PRECIO", "UBICACIÓN", "UBICACION", ""]);
+const SKIP_IN_MODAL = new Set([
+  "PRECIO", "UBICACIÓN", "UBICACION", "ubicacion", "precio", ""
+]);
 
 // ============================================================
 //  ESTADO GLOBAL
 // ============================================================
-let allItems   = [];          // Todos los productos cargados
-let searchTerm = "";          // Término de búsqueda actual
-let activeCategory = "all";   // Categoría activa
+let allItems      = [];
+let searchTerm    = "";
+let activeCategory = "all";
 
 // ============================================================
 //  DOM ELEMENTS
 // ============================================================
 const $ = id => document.getElementById(id);
 
-const splashEl       = $("splash-screen");
-const appEl          = $("app");
-const searchInput    = $("search-input");
-const clearBtn       = $("clear-search");
-const resultsGrid    = $("results-grid");
-const resultsCount   = $("results-count");
-const stateIdle      = $("state-idle");
-const stateLoading   = $("state-loading");
-const stateEmpty     = $("state-empty");
-const stateResults   = $("state-results");
-const emptyMessage   = $("empty-message");
-const connectionDot  = $("connection-status");
-const modalOverlay   = $("detail-modal");
-const modalSheet     = $("modal-sheet");
-const modalClose     = $("modal-close");
-const modalTitle     = $("modal-title");
-const modalPrice     = $("modal-price");
-const modalLocText   = $("modal-location-text");
-const modalDetails   = $("modal-details");
-const modalBadge     = $("modal-badge");
+const splashEl      = $("splash-screen");
+const appEl         = $("app");
+const searchInput   = $("search-input");
+const clearBtn      = $("clear-search");
+const resultsGrid   = $("results-grid");
+const resultsCount  = $("results-count");
+const stateIdle     = $("state-idle");
+const stateLoading  = $("state-loading");
+const stateEmpty    = $("state-empty");
+const stateResults  = $("state-results");
+const emptyMessage  = $("empty-message");
+const connectionDot = $("connection-status");
+const modalOverlay  = $("detail-modal");
+const modalClose    = $("modal-close");
+const modalTitle    = $("modal-title");
+const modalPrice    = $("modal-price");
+const modalLocText  = $("modal-location-text");
+const modalLocChip  = $("modal-location");
+const modalDetails  = $("modal-details");
+const modalBadge    = $("modal-badge");
 
-// Stats
 const statAceites   = $("stat-aceites");
 const statFiltros   = $("stat-filtros");
 const statPastillas = $("stat-pastillas");
 const statVarios    = $("stat-varios");
 
 // ============================================================
-//  INIT FIREBASE
+//  FIREBASE INIT
 // ============================================================
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
@@ -93,70 +91,158 @@ const db = firebase.firestore();
 //  LOAD DATA FROM FIRESTORE
 // ============================================================
 async function loadAllData() {
-  try {
-    const promises = Object.entries(COLLECTIONS).map(async ([catKey, colName]) => {
-      const snapshot = await db.collection(colName).get();
-      return snapshot.docs.map(doc => ({
-        _id:      doc.id,
-        _cat:     catKey,
-        _raw:     doc.data(),
+  const promises = Object.entries(COLLECTIONS).map(([catKey, colName]) =>
+    db.collection(colName).get()
+      .then(snap => snap.docs.map(doc => ({
+        _id:  doc.id,
+        _cat: catKey,
+        _raw: doc.data(),
         ...doc.data()
-      }));
-    });
+      })))
+      .catch(err => { console.warn(`Error en ${catKey}:`, err); return []; })
+  );
 
-    const results = await Promise.allSettled(promises);
-    let loaded = [];
+  const arrays = await Promise.all(promises);
+  allItems = arrays.flat();
 
-    results.forEach((r, i) => {
-      if (r.status === "fulfilled") {
-        loaded = loaded.concat(r.value);
-      } else {
-        const catKey = Object.keys(COLLECTIONS)[i];
-        console.warn(`Error cargando ${catKey}:`, r.reason);
-      }
-    });
+  // Update stats bar
+  statAceites.textContent   = allItems.filter(i => i._cat === "aceites").length;
+  statFiltros.textContent   = allItems.filter(i => i._cat === "filtros").length;
+  statPastillas.textContent = allItems.filter(i => i._cat === "pastillas").length;
+  statVarios.textContent    = allItems.filter(i => i._cat === "varios").length;
 
-    allItems = loaded;
+  const total = allItems.length;
+  connectionDot.className  = `status-dot ${total > 0 ? "status-ok" : "status-error"}`;
+  connectionDot.title      = total > 0 ? `${total} productos cargados` : "Sin datos";
 
-    // Update stats bar
-    statAceites.textContent   = allItems.filter(i => i._cat === "aceites").length;
-    statFiltros.textContent   = allItems.filter(i => i._cat === "filtros").length;
-    statPastillas.textContent = allItems.filter(i => i._cat === "pastillas").length;
-    statVarios.textContent    = allItems.filter(i => i._cat === "varios").length;
-
-    // Mark connection OK
-    connectionDot.className = "status-dot status-ok";
-    connectionDot.title = `${allItems.length} productos cargados`;
-    connectionDot.querySelector(".status-pulse").style.background = "var(--accent-green)";
-
-    // Show idle state
-    showState("idle");
-
-  } catch (err) {
-    console.error("Error conectando a Firebase:", err);
-    connectionDot.className = "status-dot status-error";
-    connectionDot.title = "Error de conexión";
-    emptyMessage.textContent = "No se pudo conectar a Firebase. Verifica las credenciales.";
-    showState("empty");
-  }
+  showState("idle");
 }
 
 // ============================================================
-//  SEARCH ENGINE  (client-side, runs on cached data)
+//  ★  NORMALIZACIÓN DE DATOS — corazón del sistema
+//     Transforma cualquier ítem crudo en un objeto estandarizado
+// ============================================================
+function normalizeItem(item) {
+  const raw = item._raw;
+
+  // Helper para leer un campo, limpiando espacios
+  const f = (...keys) => {
+    for (const k of keys) {
+      const v = raw[k];
+      if (v && String(v).trim() !== "") return String(v).trim();
+    }
+    return "";
+  };
+
+  let title = "";
+  let subs  = [];       // Máx. 3 subtítulos
+  let fields = {};      // Campos extra para el modal
+
+  switch (item._cat) {
+
+    // ── ACEITES ───────────────────────────────────────────
+    case "aceites":
+      title = f("MARCA");
+      subs  = [
+        f("PRESENTACIÓN") ? "Pres: " + f("PRESENTACIÓN") : "",
+        f("CODIGO")       ? "Cód: "  + f("CODIGO")       : "",
+        f("CALIDAD")      ? "Cal: "  + f("CALIDAD")      : "",
+      ].filter(Boolean);
+      fields = {
+        "Motor / Uso": f("MOTOR"),
+        "API":         f("API"),
+        "Presentación": f("PRESENTACIÓN"),
+        "Código":      f("CODIGO"),
+        "Calidad":     f("CALIDAD"),
+      };
+      break;
+
+    // ── FILTROS ───────────────────────────────────────────
+    case "filtros":
+      title = f("FILTRO DE ACEITE", "CARRO");
+      subs  = [
+        f("CARRO")            ? "Carro: " + f("CARRO")            : "",
+        f("FILTRO DE AIRE")   ? "Aire: "  + f("FILTRO DE AIRE")   : "",
+      ].filter(Boolean);
+      fields = {
+        "Vehículo":             f("CARRO"),
+        "Filtro de Aceite":     f("FILTRO DE ACEITE"),
+        "Serie":                f(""),           // campo "" de filtros
+        "Filtro de Aire":       f("FILTRO DE AIRE"),
+        "Filtro de Combustible": f("FILTRO DE COMBUSTIBLE ", "FILTRO DE COMBUSTIBLE"),
+      };
+      // El campo "" de filtros contiene la serie
+      if (raw[""] && String(raw[""]).trim() !== "") {
+        fields["Serie"] = String(raw[""]).trim();
+      } else {
+        delete fields["Serie"];
+      }
+      break;
+
+    // ── PASTILLAS ─────────────────────────────────────────
+    case "pastillas":
+      title = f("MARCA");
+      subs  = [
+        f("CODIGO")   ? "Cód: "  + f("CODIGO")   : "",
+        f("VEHICULO") ? "Veh: "  + f("VEHICULO")  : "",
+        f("APLICACIÓN") ? f("APLICACIÓN")          : "",
+      ].filter(Boolean);
+      fields = {
+        "Código":      f("CODIGO"),
+        "Vehículo":    f("VEHICULO"),
+        "Aplicación":  f("APLICACIÓN"),
+        "Material":    f("MATERIAL"),
+        "Stock":       f("STOCK"),
+      };
+      break;
+
+    // ── VARIOS (COSAS_VARIAS) ─────────────────────────────
+    case "varios":
+      const descVar   = f("DESCRIPCIÓN", "DESCRIPCION");
+      const marcaVar  = f("MARCA");
+      title = marcaVar || descVar || "Producto";
+      subs  = [
+        descVar              ? "Desc: " + descVar                       : "",
+        f("APLICACIÓN","APLICACION") ? "App: " + f("APLICACIÓN","APLICACION") : "",
+        f("MEDIDA")          ? "Med: "  + f("MEDIDA")                   : "",
+      ].filter(Boolean);
+      fields = {
+        "Descripción": descVar,
+        "Aplicación":  f("APLICACIÓN", "APLICACION"),
+        "Medida":      f("MEDIDA"),
+        "Marca":       marcaVar,
+      };
+      break;
+  }
+
+  // Precio y Ubicación
+  const price = f("PRECIO", "precio");
+  const loc   = f("UBICACIÓN", "UBICACION", "ubicacion");
+
+  return { title, subs, price, loc, fields };
+}
+
+// ============================================================
+//  FORMAT PRICE — devuelve "$XX.XX" o "" si vacío
+// ============================================================
+function formatPrice(raw) {
+  if (!raw) return "";
+  const n = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
+  return isNaN(n) ? "" : "$" + n.toFixed(2);
+}
+
+// ============================================================
+//  SEARCH ENGINE (client-side)
 // ============================================================
 function search(term, category) {
-  if (!term.trim() && category === "all") return null;  // show idle
+  if (!term.trim() && category === "all") return null;  // idle
 
   const words = term.trim().toLowerCase().split(/\s+/).filter(Boolean);
 
   return allItems.filter(item => {
-    // Category filter
     if (category !== "all" && item._cat !== category) return false;
-
-    // Text filter (if any words)
     if (words.length === 0) return true;
 
-    // Build searchable string from all field values
     const haystack = Object.values(item._raw)
       .filter(v => v && typeof v === "string")
       .join(" ")
@@ -170,254 +256,185 @@ function search(term, category) {
 //  RENDER RESULTS
 // ============================================================
 function renderResults(items) {
-  if (!items) { showState("idle"); return; }
+  if (!items)          { showState("idle"); return; }
   if (items.length === 0) {
-    showState("empty");
-    const q = searchTerm.trim() || "";
-    emptyMessage.textContent = q
-      ? `No encontramos "${q}" en el inventario.`
+    emptyMessage.textContent = searchTerm.trim()
+      ? `No encontramos "${searchTerm.trim()}" en el inventario.`
       : "No hay productos en esta categoría.";
+    showState("empty");
     return;
   }
 
   showState("results");
-  resultsCount.textContent = `${items.length} resultado${items.length !== 1 ? "s" : ""} encontrado${items.length !== 1 ? "s" : ""}`;
+  const count = items.length;
+  resultsCount.textContent = `${count} resultado${count !== 1 ? "s" : ""}`;
 
   resultsGrid.innerHTML = "";
-  const fragment = document.createDocumentFragment();
-
-  items.forEach(item => {
-    const card = buildCard(item);
-    fragment.appendChild(card);
-  });
-
-  resultsGrid.appendChild(fragment);
+  const frag = document.createDocumentFragment();
+  items.forEach(item => frag.appendChild(buildCard(item)));
+  resultsGrid.appendChild(frag);
 }
 
 // ============================================================
-//  BUILD PRODUCT CARD
+//  BUILD CARD
 // ============================================================
 function buildCard(item) {
-  const meta  = CAT_META[item._cat];
-  const title = getTitle(item);
-  const sub   = getSubtitle(item);
-  const price = formatPrice(item.PRECIO || item.precio || "");
-  const loc   = item["UBICACIÓN"] || item["UBICACION"] || item.ubicacion || "—";
+  const meta       = CAT_META[item._cat];
+  const normalized = normalizeItem(item);
+  const priceStr   = formatPrice(normalized.price);
+  const locStr     = normalized.loc;
 
   const card = document.createElement("div");
   card.className = "product-card";
   card.setAttribute("role", "listitem");
   card.setAttribute("tabindex", "0");
-  card.setAttribute("aria-label", `${title}, precio ${price}, ubicación ${loc}`);
+
+  // Subtítulos — máx 2 líneas para no sobrecargar
+  const subsHtml = normalized.subs.slice(0, 2)
+    .map(s => `<div class="card-sub">${esc(s)}</div>`)
+    .join("");
+
+  // Precio
+  const priceHtml = priceStr
+    ? `<span class="card-price">${esc(priceStr)}</span>`
+    : `<span class="card-price empty-val">Consultar</span>`;
+
+  // Ubicación
+  const locHtml = locStr
+    ? `<span class="card-location">
+         <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+           <path d="M8 1a5 5 0 0 0-5 5c0 3.5 5 9 5 9s5-5.5 5-9a5 5 0 0 0-5-5zm0 7a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/>
+         </svg>
+         ${esc(locStr)}
+       </span>`
+    : `<span class="card-location empty-val">Consultar</span>`;
 
   card.innerHTML = `
-    <div class="card-icon ${meta.icon}" aria-hidden="true">${meta.emoji}</div>
+    <div class="card-icon ${meta.iconClass}" aria-hidden="true">${meta.emoji}</div>
     <div class="card-body">
-      <div class="card-title">${escHtml(title)}</div>
-      <div class="card-subtitle">${escHtml(sub)}</div>
-      <div class="card-meta">
-        <span class="card-category-badge ${meta.badge}">${meta.label}</span>
-      </div>
+      <div class="card-title">${esc(normalized.title)}</div>
+      <div class="card-subs">${subsHtml}</div>
     </div>
-    <div class="card-right">
-      <div class="card-price">${escHtml(price)}</div>
-      <div class="card-location">
-        <svg viewBox="0 0 12 12" fill="currentColor" width="10" height="10"><path d="M6 1a3 3 0 0 0-3 3c0 2.5 3 7 3 7s3-4.5 3-7a3 3 0 0 0-3-3zm0 4.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
-        ${escHtml(loc)}
-      </div>
+    <span class="card-pill ${meta.pillClass}">${meta.pillLabel}</span>
+    <div class="card-footer">
+      ${priceHtml}
+      ${locHtml}
     </div>
-    <svg class="card-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>
   `;
 
-  card.addEventListener("click", () => openModal(item));
-  card.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") openModal(item); });
-
+  const open = () => openModal(item, normalized, meta);
+  card.addEventListener("click", open);
+  card.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") open(); });
   return card;
 }
 
 // ============================================================
-//  HELPER: derive display title & subtitle per category
+//  OPEN MODAL
 // ============================================================
-function getTitle(item) {
-  switch (item._cat) {
-    case "aceites":
-      return [item.MARCA, item.CODIGO].filter(Boolean).join(" — ");
-    case "filtros":
-      return item.CARRO || "Filtro";
-    case "pastillas":
-      return [item.MARCA, item.CODIGO].filter(Boolean).join(" — ");
-    case "varios":
-      return item["DESCRIPCIÓN"] || item.DESCRIPCION || item.MARCA || "Producto";
-    default:
-      return item.MARCA || item["DESCRIPCIÓN"] || "Producto";
+function openModal(item, normalized, meta) {
+  // Badge / pill
+  modalBadge.textContent = meta.pillLabel;
+  modalBadge.className   = `modal-pill ${meta.pillClass}`;
+
+  // Title
+  modalTitle.textContent = normalized.title;
+
+  // Price
+  const priceStr = formatPrice(normalized.price);
+  if (priceStr) {
+    modalPrice.textContent  = priceStr;
+    modalPrice.className    = "modal-price";
+  } else {
+    modalPrice.textContent  = "Consultar";
+    modalPrice.className    = "modal-price empty-val";
   }
-}
 
-function getSubtitle(item) {
-  switch (item._cat) {
-    case "aceites":
-      return [item["PRESENTACIÓN"], item.CALIDAD, item.MOTOR].filter(Boolean).join(" · ");
-    case "filtros":
-      return ["Aceite:", item["FILTRO DE ACEITE"], "| Aire:", item["FILTRO DE AIRE"]].filter(Boolean).join(" ");
-    case "pastillas":
-      return [item.VEHICULO, item["APLICACIÓN"]].filter(Boolean).join(" — ");
-    case "varios":
-      return [item.MARCA, item.APLICACIÓN || item.APLICACION, item.MEDIDA].filter(Boolean).join(" · ");
-    default:
-      return "";
+  // Location chip
+  if (normalized.loc) {
+    modalLocText.textContent  = normalized.loc;
+    modalLocChip.className    = "modal-location-chip";
+  } else {
+    modalLocText.textContent  = "Consultar";
+    modalLocChip.className    = "modal-location-chip empty-val";
   }
-}
 
-// ============================================================
-//  FORMAT PRICE
-// ============================================================
-function formatPrice(raw) {
-  if (!raw || raw === "") return "—";
-  const n = parseFloat(String(raw).replace(/[^0-9.]/g, ""));
-  if (isNaN(n)) return "—";
-  return "$" + n.toFixed(2);
-}
-
-// ============================================================
-//  MODAL DETAIL
-// ============================================================
-function openModal(item) {
-  const meta  = CAT_META[item._cat];
-  const title = getTitle(item);
-  const price = formatPrice(item.PRECIO || item.precio || "");
-  const loc   = item["UBICACIÓN"] || item["UBICACION"] || item.ubicacion || "—";
-
-  // Badge
-  modalBadge.textContent = meta.label;
-  modalBadge.className = `modal-category-badge ${meta.badge}`;
-
-  modalTitle.textContent    = title;
-  modalPrice.textContent    = price;
-  modalLocText.textContent  = loc;
-
-  // Build detail rows from all raw fields
+  // Detail rows — uses the normalized `fields` map
   modalDetails.innerHTML = "";
-  const raw = item._raw;
+  const list = document.createElement("div");
+  list.className = "detail-list";
 
-  const LABELS = {
-    "PRESENTACIÓN": "Presentación",
-    "MARCA":        "Marca",
-    "CODIGO":       "Código",
-    "CALIDAD":      "Calidad",
-    "MOTOR":        "Motor / Uso",
-    "API":          "API",
-    "VEHICULO":     "Vehículo",
-    "APLICACIÓN":   "Aplicación",
-    "APLICACION":   "Aplicación",
-    "MATERIAL":     "Material",
-    "STOCK":        "Stock",
-    "MEDIDA":       "Medida",
-    "DESCRIPCIÓN":  "Descripción",
-    "DESCRIPCION":  "Descripción",
-    "CARRO":        "Vehículo",
-    "FILTRO DE ACEITE":       "Filtro de Aceite",
-    "FILTRO DE AIRE":         "Filtro de Aire",
-    "FILTRO DE COMBUSTIBLE ": "Filtro de Combustible",
-    "":             null  // skip empty keys
-  };
-
-  const SKIP = new Set(["PRECIO","UBICACIÓN","UBICACION","ubicacion","precio"]);
-  const fragment = document.createDocumentFragment();
-
-  Object.entries(raw).forEach(([key, value]) => {
-    const trimKey = key.trim();
-    if (SKIP.has(trimKey) || trimKey === "" || !value || String(value).trim() === "") return;
+  let hasRows = false;
+  for (const [label, value] of Object.entries(normalized.fields)) {
+    if (!value || String(value).trim() === "") continue;
 
     const row = document.createElement("div");
     row.className = "detail-row";
-    const label = LABELS[key] || LABELS[trimKey] || trimKey;
-    if (!label) return;
-
-    const isHighlight = ["CODIGO","APLICACIÓN","APLICACION","VEHICULO","MATERIAL"].includes(trimKey);
-
+    const isHighlight = ["Código", "Aplicación", "Material", "Vehículo"].includes(label);
     row.innerHTML = `
-      <span class="detail-key">${escHtml(label)}</span>
-      <span class="detail-value${isHighlight ? " highlight" : ""}">${escHtml(String(value).trim())}</span>
+      <span class="detail-key">${esc(label)}</span>
+      <span class="detail-value${isHighlight ? " highlight" : ""}">${esc(String(value).trim())}</span>
     `;
-    fragment.appendChild(row);
-  });
+    list.appendChild(row);
+    hasRows = true;
+  }
 
-  modalDetails.appendChild(fragment);
+  if (hasRows) modalDetails.appendChild(list);
 
-  // Open modal with animation
+  // Show modal
   modalOverlay.classList.remove("hidden");
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      modalOverlay.classList.add("open");
-    });
-  });
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    modalOverlay.classList.add("open");
+  }));
   document.body.style.overflow = "hidden";
   modalClose.focus();
 }
 
+// ============================================================
+//  CLOSE MODAL
+// ============================================================
 function closeModal() {
   modalOverlay.classList.remove("open");
   setTimeout(() => {
     modalOverlay.classList.add("hidden");
     document.body.style.overflow = "";
-  }, 350);
+  }, 360);
 }
 
 // ============================================================
-//  SHOW/HIDE STATES
+//  SHOW STATE
 // ============================================================
 function showState(state) {
   stateIdle.classList.add("hidden");
   stateLoading.classList.add("hidden");
   stateEmpty.classList.add("hidden");
   stateResults.classList.add("hidden");
-
-  if (state === "idle")     stateIdle.classList.remove("hidden");
-  if (state === "loading")  stateLoading.classList.remove("hidden");
-  if (state === "empty")    stateEmpty.classList.remove("hidden");
-  if (state === "results")  stateResults.classList.remove("hidden");
+  $(`state-${state}`).classList.remove("hidden");
 }
 
 // ============================================================
-//  EVENT LISTENERS
+//  EVENTS
 // ============================================================
-
-// Search input — debounced
-let searchDebounce;
+let debounce;
 searchInput.addEventListener("input", () => {
-  const val = searchInput.value;
-  searchTerm = val;
-  clearBtn.classList.toggle("hidden", val === "");
+  const v = searchInput.value;
+  searchTerm = v;
+  clearBtn.classList.toggle("hidden", v === "");
 
-  clearTimeout(searchDebounce);
-
-  if (!val.trim() && activeCategory === "all") {
-    showState("idle");
-    return;
-  }
-
+  clearTimeout(debounce);
+  if (!v.trim() && activeCategory === "all") { showState("idle"); return; }
   showState("loading");
-  searchDebounce = setTimeout(() => {
-    const results = search(searchTerm, activeCategory);
-    renderResults(results);
-  }, 280);
+  debounce = setTimeout(() => renderResults(search(searchTerm, activeCategory)), 280);
 });
 
-// Clear button
 clearBtn.addEventListener("click", () => {
   searchInput.value = "";
   searchTerm = "";
   clearBtn.classList.add("hidden");
   searchInput.focus();
-  if (activeCategory === "all") {
-    showState("idle");
-  } else {
-    const results = search("", activeCategory);
-    renderResults(results);
-  }
+  if (activeCategory === "all") showState("idle");
+  else renderResults(search("", activeCategory));
 });
 
-// Quick tags
 document.querySelectorAll(".quick-tag").forEach(btn => {
   btn.addEventListener("click", () => {
     const q = btn.dataset.query;
@@ -425,77 +442,58 @@ document.querySelectorAll(".quick-tag").forEach(btn => {
     searchTerm = q;
     clearBtn.classList.remove("hidden");
     showState("loading");
-    setTimeout(() => {
-      const results = search(q, activeCategory);
-      renderResults(results);
-    }, 200);
+    setTimeout(() => renderResults(search(q, activeCategory)), 200);
   });
 });
 
-// Category tabs
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
-    // Update active tab
     document.querySelectorAll(".tab-btn").forEach(b => {
       b.classList.remove("active");
       b.setAttribute("aria-selected", "false");
     });
     btn.classList.add("active");
     btn.setAttribute("aria-selected", "true");
-
     activeCategory = btn.dataset.category;
 
-    // Trigger search
-    if (!searchTerm.trim() && activeCategory === "all") {
-      showState("idle");
-      return;
-    }
+    if (!searchTerm.trim() && activeCategory === "all") { showState("idle"); return; }
     showState("loading");
-    setTimeout(() => {
-      const results = search(searchTerm, activeCategory);
-      renderResults(results);
-    }, 150);
+    setTimeout(() => renderResults(search(searchTerm, activeCategory)), 150);
   });
 });
 
-// Modal close
 modalClose.addEventListener("click", closeModal);
 modalOverlay.addEventListener("click", e => { if (e.target === modalOverlay) closeModal(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
 
-// Prevent modal sheet from closing when swiping within it
-let touchStartY = 0;
-modalSheet.addEventListener("touchstart", e => { touchStartY = e.touches[0].clientY; }, { passive: true });
-
 // ============================================================
 //  UTILITY
 // ============================================================
-function escHtml(str) {
+function esc(str) {
   return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
 // ============================================================
-//  BOOT SEQUENCE
+//  BOOT
 // ============================================================
 (function boot() {
-  // Show loading splash for minimum 1.6s (matches animation), then reveal app
-  const minSplash = new Promise(resolve => setTimeout(resolve, 1800));
-  const dataReady = loadAllData();
+  const minSplash = new Promise(r => setTimeout(r, 1800));
+  const dataLoad  = loadAllData().catch(err => {
+    console.error("Firebase error:", err);
+    connectionDot.className = "status-dot status-error";
+    connectionDot.title = "Error de conexión";
+    emptyMessage.textContent = "No se pudo conectar a Firebase. Verifica tus credenciales en app.js.";
+    showState("empty");
+  });
 
-  Promise.all([minSplash, dataReady]).then(() => {
-    splashEl.style.opacity = "0";
+  Promise.all([minSplash, dataLoad]).then(() => {
     splashEl.style.transition = "opacity 0.4s ease";
+    splashEl.style.opacity    = "0";
     setTimeout(() => {
       splashEl.classList.add("hidden");
       appEl.classList.remove("hidden");
     }, 400);
-  }).catch(err => {
-    console.error("Boot error:", err);
-    splashEl.classList.add("hidden");
-    appEl.classList.remove("hidden");
   });
 })();
